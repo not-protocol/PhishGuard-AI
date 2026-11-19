@@ -1,0 +1,12 @@
+{
+  "files": {
+    "message_model.joblib": "df81bbe029ce72c76ec29661a4d657ac18339aa90713eeace316358d06737be3",
+    "url_model.joblib": "b379238783e41270a24d33b16cc8565e26669654c0cf5d5bed56bb697adc0730"
+  },
+  "trained_with": {
+    "python": "3.14.8",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.5",
+    "pandas": "3.1.1"
+  }
+}

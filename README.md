@@ -1,373 +1,207 @@
 # PhishGuard AI
-## Project Documentation
 
-**Version:** 1.0  
-**Project Type:** AI-Powered Cybersecurity Web Application  
-**Developer:** Rohan Kumar  
-**Project Status:** Development  
-**License:** To be determined
+AI-assisted phishing detection for **messages (SMS / email text)** and **URLs**, with a Security Operations Center style web dashboard.
+
+* Detection, feature extraction, risk scoring and classification run **locally and offline** (scikit-learn + deterministic rules).
+* An optional **OpenAI or Gemini** call only *explains* the finished result. It can never change the score, and the app works without it.
+* Submitted URLs are **parsed as text and never opened**.
+
+> **Read this first: the bundled models are trained on SYNTHETIC seed data.**
+> No real phishing dataset was available where this project was built (no internet access), so `datasets/generate_seed.py` produces template-based sample data. The metrics below prove the pipeline works end to end; they say **nothing reliable about real-world accuracy**. For research or competition use, train on real, licence-checked data (see [Using real datasets](#using-real-datasets)).
 
 ---
 
-# 1. Introduction
+## Quick start
 
-PhishGuard AI is an intelligent phishing detection system that analyses suspicious messages and URLs using locally executed machine-learning models.
+```bash
+python3 -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python train.py          # trains both models, writes models/ and models/evaluation.json
+python app.py            # http://127.0.0.1:5000
+```
 
-It calculates threat scores and identifies suspicious characteristics locally, then optionally uses external generative AI APIs to generate detailed explanations and security summaries.
+`python train.py` generates the synthetic seed data automatically if `datasets/messages.csv` / `urls.csv` do not exist. Without trained models the app still runs, but scores use rule-based evidence only and every report carries a visible warning (rule-only scores can under-report risk).
 
-The application supports OpenAI ChatGPT API and Google Gemini API.
+Developed and tested on Python 3.12 (3.11+ should work) with Flask 3.1, scikit-learn 1.9, pandas 3.0, numpy 2.5, joblib 1.6, requests 2.34.
 
-# 2. Main Capabilities
+## Architecture
 
-## Message Analysis
-Identifies potentially fraudulent messages, credential harvesting attempts, impersonation and social engineering indicators.
+```
+ message / URL
+      │
+      ▼
+┌──────────────────── LOCAL (offline) ─────────────────────┐
+│ detector.py   parse + validate → features / text → ML     │
+│               message: TF-IDF + Logistic Regression       │
+│               URL:     29 structural features + Random Forest │
+│               + readable evidence (rules, typosquat, …)   │
+│ risk_engine.py  documented weights → 0-100 score,         │
+│                 level, category, recommendations          │
+└───────────────────────────┬──────────────────────────────┘
+                            ▼
+                 structured report (SQLite history)
+                            │  only on user click, only labels/numbers
+                            ▼
+        ai_summary.py ─► OpenAI / Gemini (optional)  ─► explanation text
+                            └─ any failure → deterministic local summary
+```
 
-## URL Analysis
-Examines URL structures and extracts suspicious characteristics to identify potentially malicious links.
+| File | Responsibility |
+|---|---|
+| `app.py` | Flask routes, SQLite history, CSRF/origin checks, security headers |
+| `detector.py` | URL parsing, feature extraction, message indicators, verified model loading |
+| `risk_engine.py` | Deterministic scoring (imports nothing, so it cannot depend on an AI layer) |
+| `ai_summary.py` | Optional OpenAI/Gemini explanations, output validation, local fallback |
+| `train.py` | Grouped train/test split, training, evaluation, robustness check, model manifest |
+| `datasets/generate_seed.py` | Synthetic seed data generator (clearly labelled) |
+| `templates/index.html`, `static/` | Dashboard (HTML + custom CSS + vanilla JS, no CDN, no framework) |
+| `tests/` | 96 unit/integration tests + an optional real-browser end-to-end script |
 
-## Risk Assessment
-Calculates risk scores using locally processed evidence and machine-learning outputs.
+## Configuration
 
-## AI Security Reports
-Uses an external generative AI provider to explain detection results in understandable language.
+Copy `.env.example` to `.env`. **Everything is optional**: detection needs none of it.
+
+| Variable | Meaning |
+|---|---|
+| `AI_ENABLED` | `true` to allow AI summaries (default `false`) |
+| `AI_PROVIDER` | `openai` or `gemini` |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Used only when provider is `openai`. Use a model your account supports |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Used only when provider is `gemini` |
+| `AI_TIMEOUT` | Seconds before falling back to the local summary (default 20) |
+| `SECRET_KEY` | Fixed Flask session secret (random per start if unset) |
+| `PORT` | Port (default 5000). The server binds to `127.0.0.1` only |
+
+Only the selected provider's key is needed. Keys stay on the server and are never sent to the browser (`/api/settings` reports only whether one is present).
+
+### What an AI provider receives
+
+Only a small JSON object built by `ai_summary.build_findings`: risk score, level, category, model confidence, **fixed evidence labels**, score breakdown and a link count. It never contains your message, URLs, domains or the TLD (tests assert this). The summary is requested per click from the Risk Analysis page, and the findings are rebuilt on the server from the saved report, so the client cannot inject content. The response is treated as untrusted: markup is stripped, length capped, and it is **rejected** (local summary shown instead) if it states a score that differs from the local one.
 
 ## Dashboard
-Displays analysis results, system status, risk indicators and historical reports.
 
-# 3. System Requirements
+Overview · URL Scanner · Message Scanner · Risk Analysis (gauge, score breakdown, recommendations, summary) · Detection Evidence · Analysis History · Settings (model and AI status, evaluation snapshot).
 
-### Software
-- Python 3.11 or newer.
-- pip.
-- Flask.
-- Scikit-learn.
-- SQLite.
-- Modern web browser.
-- Internet connection for external AI summaries.
+## API
 
-### Hardware
-- Modern 64-bit processor.
-- 4 GB RAM recommended for development.
-- Storage for datasets, models and application files.
-
-A GPU is not required.
-
-# 4. Installation
-
-## Step 1: Clone the project
+State-changing requests need the session CSRF token (`X-CSRF-Token`) and `Content-Type: application/json`.
 
 ```bash
-git clone YOUR_REPOSITORY_URL PhishGuard-AI
-cd PhishGuard-AI
+B=http://127.0.0.1:5000
+TOKEN=$(curl -s -c jar $B/ | grep -o 'csrf-token" content="[^"]*' | cut -d'"' -f3)
+curl -s -b jar -H "X-CSRF-Token: $TOKEN" -H "Content-Type: application/json" \
+     -d '{"url":"http://secure-paypal-login.xyz/verify"}' $B/api/analyze/url
 ```
 
-Replace the repository placeholder with the actual repository URL.
-
-## Step 2: Create a virtual environment
-
-```bash
-python3 -m venv .venv
-```
-
-Activate it:
-
-```bash
-source .venv/bin/activate
-```
-
-## Step 3: Install dependencies
-
-```bash
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-## Step 4: Configure environment variables
-
-Create a `.env` file using `.env.example` as a template.
-
-Example:
-
-```env
-AI_ENABLED=true
-AI_PROVIDER=gemini
-
-OPENAI_API_KEY=
-OPENAI_MODEL=
-
-GEMINI_API_KEY=
-GEMINI_MODEL=
-
-AI_TIMEOUT=20
-```
-
-Never upload the actual `.env` file to a public repository.
-
-## Step 5: Train the models
-
-After downloading and preparing the required datasets:
-
-```bash
-python train.py
-```
-
-The training script should:
-- Validate datasets.
-- Prepare training and testing partitions.
-- Train the message classifier.
-- Train the URL classifier.
-- Evaluate model performance.
-- Save the trained model artifacts.
-
-## Step 6: Launch the application
-
-```bash
-python app.py
-```
-
-Open:
-
-```text
-http://127.0.0.1:5000
-```
-
-# 5. AI Provider Configuration
-
-PhishGuard AI supports two external generative AI providers.
-
-## OpenAI
-
-Set:
-
-```env
-AI_PROVIDER=openai
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=your_supported_model
-```
-
-## Google Gemini
-
-Set:
-
-```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=your_supported_model
-```
-
-The application should use the configured provider and must not require both API keys.
-
-AI provider selection must not change local detection calculations.
-
-# 6. Detection Workflow
-
-## Message Detection
-
-1. User submits a message.
-2. Backend validates the text.
-3. Text preprocessing is performed.
-4. TF-IDF converts text into numerical features.
-5. Logistic Regression performs classification.
-6. Suspicious indicators are extracted.
-7. Risk engine calculates the score.
-8. AI provider optionally generates a summary.
-9. Final report is displayed.
-
-## URL Detection
-
-1. User submits a URL.
-2. Backend validates the input.
-3. URL components are parsed safely.
-4. Numerical features are extracted.
-5. Random Forest performs classification.
-6. Suspicious URL indicators are evaluated.
-7. Risk engine calculates the score.
-8. AI provider optionally generates an explanation.
-9. Final report is displayed.
-
-Submitted URLs must never be opened automatically.
-
-# 7. API Documentation
-
-## Backend Endpoints
-
-### Health Check
-
-```http
-GET /api/health
-```
-
-Checks application availability.
-
-### Message Analysis
-
-```http
-POST /api/analyze/message
-Content-Type: application/json
-```
-
-Example request:
-
-```json
-{
-  "message": "Your account is suspended. Verify your password immediately."
-}
-```
-
-### URL Analysis
-
-```http
-POST /api/analyze/url
-Content-Type: application/json
-```
-
-Example request:
-
-```json
-{
-  "url": "https://example.com/login"
-}
-```
-
-### AI Summary
-
-```http
-POST /api/summary
-Content-Type: application/json
-```
-
-Receives structured local analysis findings and requests an AI-generated explanation.
-
-### Model Status
-
-```http
-GET /api/models/status
-```
-
-Returns information about trained model availability.
-
-# 8. Example Analysis Report
-
-The following is a hypothetical output illustrating the intended report format.
-
-```json
-{
-  "analysis_id": "PG-000001",
-  "input_type": "message",
-  "classification": "phishing",
-  "risk_score": 82,
-  "risk_level": "critical",
-  "confidence": 0.91,
-  "indicators": [
-    "Urgent language",
-    "Credential harvesting indicators",
-    "Suspicious link"
-  ],
-  "ai_summary": {
-    "provider": "gemini",
-    "status": "generated",
-    "summary": "This message exhibits several characteristics associated with phishing."
-  }
-}
-```
-
-These values are illustrative and are not actual predictions.
-
-# 9. Dataset Management
-
-Potential dataset sources:
-
-- SMS Spam Collection.
-- PhishTank.
-- URLhaus.
-- Other properly labelled phishing-message datasets.
-
-Dataset preparation must include:
-- Source documentation.
-- Licensing verification.
-- Label validation.
-- Duplicate removal.
-- Class distribution analysis.
-- Training and testing separation.
-
-Spam must not automatically be treated as phishing.
-
-# 10. Research and Evaluation
-
-The project must be evaluated using:
-
-| Metric | Purpose |
+| Endpoint | Purpose |
 |---|---|
-| Accuracy | Overall classification correctness |
-| Precision | Reliability of positive predictions |
-| Recall | Ability to identify phishing samples |
-| F1-score | Balance between precision and recall |
-| Confusion matrix | Classification error analysis |
-| False-positive rate | Frequency of legitimate samples incorrectly flagged |
-| ROC-AUC | Ranking performance across thresholds |
+| `GET /api/health` | Liveness |
+| `POST /api/analyze/url` `{"url": …}` | Analyse a URL (≤ 2048 chars, http/https only) |
+| `POST /api/analyze/message` `{"message": …}` | Analyse text (≤ 5000 chars) |
+| `POST /api/summary` `{"analysis_id": "PG-000001"}` | AI (or local fallback) explanation of a saved analysis |
+| `GET /api/history`, `GET /api/history/<id>`, `DELETE /api/history` | History |
+| `GET /api/stats`, `GET /api/settings`, `GET /api/models/status` | Dashboard data |
 
-The research report should document:
-- Dataset sources and versions.
-- Preprocessing decisions.
-- Model configurations.
-- Training methodology.
-- Testing methodology.
-- Evaluation results.
-- Known limitations.
+## How the risk score works
 
-# 11. Security and Privacy
+`risk_score` (0-100) is **not** the model probability; both are reported. Weights are fixed, documented heuristics (not calibrated probabilities) in `risk_engine.py`.
 
-- API keys must remain on the backend.
-- Raw messages must not be transmitted to AI providers by default.
-- API requests must contain only necessary structured findings.
-- User input must be validated.
-- AI output must be treated as untrusted content.
-- Submitted URLs must not be automatically opened.
-- Analysis history must not retain raw message contents by default.
-- Sensitive configuration files must be excluded from version control.
+| Report | Components |
+|---|---|
+| URL | 60 × P(phishing) from the Random Forest + up to 40 for structural evidence (IP host 15, typosquat 15, brand misuse 15, `@` 10, punycode 8, suspicious TLD 8, shortener 6, …) |
+| Message | 40 × P(phishing) from the text model + up to 45 for language evidence (credential request 15, urgency 10, account threat 10, secrecy 10, brand/link mismatch 12, …) + up to 20 from the riskiest embedded link |
 
-# 12. Limitations
+Levels: `<25` low · `<50` medium · `<75` high · `≥75` critical. Evidence over its cap is scaled down proportionally. The same input always gives the same score.
 
-PhishGuard AI is a detection-assistance tool, not a guarantee that a message or website is safe.
+Language evidence is negation-aware ("never share your OTP" is advice, not a credential request).
 
-Potential limitations include:
-- Previously unseen phishing techniques.
-- Dataset bias.
-- False-positive classifications.
-- False-negative classifications.
-- Evolving phishing infrastructure.
-- Lack of live domain reputation checks when external intelligence is unavailable.
-- Generative AI explanations that may occasionally be inaccurate.
+## Training and evaluation
 
-Users should independently verify suspicious communications.
+```bash
+python train.py [--messages my_messages.csv] [--urls my_urls.csv]
+```
 
-# 13. Future Development
+* **Grouped splits**: messages are split by template, URLs by registered domain, so the 25 % test set contains templates and domains **never seen in training** (asserted in code). Seeded (`42`), hence reproducible.
+* Reports accuracy, precision, recall, F1, ROC-AUC, false-positive rate and confusion matrix, plus grouped 5-fold CV, URL feature importances, a URL-variation robustness check, and an end-to-end evaluation of model + evidence + risk engine (`score ≥ 50` ⇒ phishing).
+* Models are saved with a SHA-256 manifest and verified before loading.
 
-Potential future features:
+### Measured results (SYNTHETIC data, held-out groups)
 
-1. Hinglish phishing detection.
-2. Browser extension.
-3. Live threat-intelligence integration.
-4. PDF security reports.
-5. Advanced URL reputation checking.
-6. Email header analysis.
-7. Model comparison dashboard.
-8. Explainable ML visualizations.
-9. Additional language support.
-10. Batch message and URL analysis.
+| | n test | Precision | Recall | F1 | ROC-AUC | FPR | Confusion (TN/FP/FN/TP) |
+|---|---|---|---|---|---|---|---|
+| Message model alone | 139 | 0.916 | 0.987 | 0.950 | 0.990 | 0.113 | 55 / 7 / 1 / 76 |
+| URL model alone | 341 | 1.000 | 0.985 | 0.992 | 1.000 | 0.000 | 148 / 0 / 3 / 190 |
+| Message end-to-end | 139 | 1.000 | 0.987 | 0.994 | 1.000 | 0.000 | 62 / 0 / 1 / 76 |
+| URL end-to-end | 341 | 1.000 | 0.959 | 0.979 | 1.000 | 0.000 | 148 / 0 / 8 / 185 |
 
-# 14. Development Principles
+Grouped 5-fold CV F1: messages 0.965 ± 0.056, URLs 0.999 ± 0.002. URL recall after variations: query string appended 0.948, scheme swapped 0.959, trailing slash 0.979, uppercase host 0.985 (baseline 0.985).
 
-PhishGuard AI follows these principles:
+**How to read these honestly**
 
-- Local calculations must remain independent of generative AI.
-- Risk scores must be reproducible.
-- Model performance must be measurable.
-- AI explanations must be grounded in detection evidence.
-- User data must be protected.
-- Features must have real functionality.
-- Research claims must be supported by experiments.
+* The data is synthetic and template-generated, so it is far easier than real traffic. Near-perfect URL scores mostly reflect easily separable generator patterns (top features: suspicious TLD, HTTPS, brand misuse).
+* Of the message model's 7 false positives, 6 come from one legitimate template ("Payment … received"), and only 16 templates were held out, so message figures are high-variance (note the ±0.056).
+* The indicator rules were written by the same author using the same vocabulary as the generator, so the end-to-end message result is **optimistic**, not independent evidence.
+* I inspected held-out errors while fixing defects (e.g. typosquat logic), so this test set is no longer perfectly untouched. For a publishable result, freeze a fresh test set first.
+* Query-string appending visibly reduces URL recall: a real, measured weakness.
 
----
+### Using real datasets
 
-**End of Project Documentation — Version 1.0**
+Provide CSVs (UTF-8, header row required) and delete `datasets/SYNTHETIC_DATA.txt` so results are no longer flagged synthetic:
+
+* `messages.csv`: `text,label,group`: `label` 1 = phishing, 0 = legitimate; `group` = source/campaign/template id (keeps near-duplicates on one side of the split).
+* `urls.csv`: `url,label,group`: `group` = registered domain.
+
+Candidate sources (verify each one's current licence and terms before use): phishing-email corpora for messages; PhishTank/OpenPhish-style feeds for phishing URLs; a top-sites list such as Tranco for legitimate domains. The SMS Spam Collection is **spam, not phishing**; do not treat spam as phishing. Remove duplicates and document sources, versions and licences in your report.
+
+## Testing
+
+```bash
+python -m unittest discover -s tests -t .        # 96 tests (pytest also discovers them)
+```
+
+Covers URL parsing and validation, features, typosquat/brand logic, negation handling, model integrity checks, risk scoring, AI provider success and every failure mode (timeouts, HTTP errors, malformed or contradicting output, missing key), privacy of provider payloads, CSRF/origin handling, no-network URL analysis, raw-content storage, SQL-injection attempts, rate limiting, offline and no-model operation, and regex run-time bounds.
+
+Optional real-browser check (needs `pip install playwright` and a Chromium build):
+
+```bash
+python app.py &                                   # use an empty phishguard.db
+BASE_URL=http://127.0.0.1:5000 python tests/e2e_browser.py
+```
+
+It drives the real UI (both scanners, risk view, evidence, history, settings, clearing history, mobile layout and overflow), confirms an injected `<script>`/`onerror` payload does not execute, and fails on any unexpected console error or CSP violation.
+
+## Security notes
+
+| Area | Status |
+|---|---|
+| SSRF / URL visiting | URLs are only parsed; a test fails if any socket, DNS or `requests` call happens during analysis |
+| XSS | All dynamic text is inserted via `textContent` (no `innerHTML`); strict CSP: no inline script/style, no third-party origins, no `unsafe-eval` |
+| CSRF | Per-session token on all state-changing calls, `Origin` check, `SameSite=Strict` HttpOnly cookie, JSON-only bodies |
+| Injection | Parameterised SQL only; no shell/subprocess/eval anywhere |
+| Secrets | Keys only in server environment; never in responses, pages or logs; `.env` is git-ignored |
+| Privacy | Message text and full URLs are not stored. History keeps scores, evidence labels and registered domains of scanned links |
+| DoS | Body ≤ 64 KB, message ≤ 5000, URL ≤ 2048 chars, ≤ 5 links/message, bounded regexes (worst measured adversarial input ≈ 10 ms), 10 AI summaries/min/client |
+| Model loading | `joblib` uses pickle. Files are SHA-256-verified against `models/manifest.json` before loading. This catches accidental or partial tampering, **not** an attacker who can rewrite both files, so treat `models/` as trusted-only |
+| Not done | Dependency CVE scan (no network here; run `pip-audit`), HTTPS/`Secure` cookies (run behind a TLS proxy and set `SESSION_COOKIE_SECURE=True` in `create_app`), production WSGI server (`python app.py` is Flask's development server; use waitress/gunicorn), authentication, multi-user separation (history is global) |
+
+## Limitations
+
+* Trained on synthetic data until you supply real data. Real-world precision/recall are **unknown**.
+* English only. Hinglish and other languages are future work.
+* URL analysis is structural only: no live reputation, WHOIS, domain age, page content or redirect following. A brand-new clean-looking phishing domain can score low; a legitimate odd-looking URL can score high.
+* The brand and typosquat lists are small and hand-written; very short brand names (e.g. 3-4 letters) are not edit-distance matched to avoid false alarms.
+* The message model is a bag-of-words model: it cannot judge sender identity, headers, attachments or images.
+* Risk weights are heuristic, not calibrated. A "low risk" result is **not** a guarantee of safety.
+* Generative explanations can be imperfect; they are validated but not fact-checked beyond the score check.
+* Provider calls were exercised only against mocked HTTP responses. They have **not** been run against live OpenAI/Gemini endpoints (no network or keys here). Check that your chosen model name is valid for your account.
+* Without models the app still works but under-reports (it warns when this happens).
+
+## Project layout
+
+```
+app.py  detector.py  risk_engine.py  ai_summary.py  train.py
+datasets/   generate_seed.py, SYNTHETIC_DATA.txt, messages.csv, urls.csv (synthetic)
+models/     message_model.joblib, url_model.joblib, manifest.json, evaluation.json
+templates/  index.html          static/  style.css, app.js
+tests/      test_detector.py, test_risk_engine.py, test_ai_summary.py, test_app.py, e2e_browser.py
+requirements.txt  .env.example  .gitignore  README.md
+```

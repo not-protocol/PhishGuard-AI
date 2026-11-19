@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>PhishGuard AI - Threat Intelligence Center</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Primary">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" class="brand-icon" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3Zm-1 14-3.5-3.5 1.4-1.4L11 13.2l4.6-4.6 1.4 1.4L11 16Z"/></svg>
+      <div><strong>PhishGuard AI</strong><span>Threat Intelligence Center</span></div>
+    </div>
+    <nav>
+      <button class="nav-btn active" data-view="overview">Overview</button>
+      <button class="nav-btn" data-view="url">URL Scanner</button>
+      <button class="nav-btn" data-view="message">Message Scanner</button>
+      <button class="nav-btn" data-view="risk">Risk Analysis</button>
+      <button class="nav-btn" data-view="evidence">Detection Evidence</button>
+      <button class="nav-btn" data-view="history">Analysis History</button>
+      <button class="nav-btn" data-view="settings">Settings</button>
+    </nav>
+    <div class="side-foot">
+      <div class="status-row"><span class="dot" id="dotModels"></span><span id="txtModels">Models: checking</span></div>
+      <div class="status-row"><span class="dot" id="dotAi"></span><span id="txtAi">AI summaries: checking</span></div>
+      <p class="tiny">Detection runs locally. URLs are never opened.</p>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button class="menu-btn" id="menuBtn" aria-label="Toggle navigation" aria-expanded="false">Menu</button>
+      <h1 id="viewTitle">Overview</h1>
+      <span class="chip chip-cyan">Offline detection engine</span>
+    </header>
+
+    <div id="banner" class="banner hidden" role="alert"></div>
+
+    <!-- OVERVIEW -->
+    <section class="view" id="view-overview">
+      <div class="stat-grid">
+        <div class="panel stat"><span class="label">Total scans</span><strong id="statTotal">0</strong></div>
+        <div class="panel stat"><span class="label">High / critical</span><strong id="statFlagged">0</strong></div>
+        <div class="panel stat"><span class="label">Average risk</span><strong id="statAvg">-</strong></div>
+        <div class="panel stat"><span class="label">URL / message scans</span><strong id="statTypes">0 / 0</strong></div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <h2>Risk level distribution</h2>
+          <div id="distChart" class="dist" role="img" aria-label="Bar chart of scans by risk level"></div>
+        </div>
+        <div class="panel">
+          <h2>Recent scans</h2>
+          <div class="table-wrap"><table class="tbl" id="recentTbl">
+            <thead><tr><th>ID</th><th>Type</th><th>Target</th><th>Score</th><th>Level</th></tr></thead><tbody></tbody>
+          </table></div>
+          <p class="empty hidden" id="recentEmpty">No scans yet. Try the URL or Message scanner.</p>
+        </div>
+      </div>
+      <div class="panel notice">
+        <h2>How it works</h2>
+        <p>The local engine classifies text with TF-IDF + Logistic Regression and URLs with a Random Forest over structural features. A transparent rule-weighted risk engine turns those outputs and detected evidence into a 0-100 score. Optional AI summaries only explain the finished result.</p>
+      </div>
+    </section>
+
+    <!-- URL SCANNER -->
+    <section class="view hidden" id="view-url">
+      <div class="panel">
+        <h2>Analyse a URL</h2>
+        <p class="muted">The address is analysed as text only. It is never opened, resolved or downloaded.</p>
+        <label class="field-label" for="urlInput">URL</label>
+        <input id="urlInput" type="text" autocomplete="off" spellcheck="false" maxlength="2048" placeholder="https://example.com/login">
+        <div class="actions">
+          <button class="btn primary" id="urlBtn">Analyse URL</button>
+          <button class="btn ghost" data-fill="url" data-text="http://paypal-secure-login.xyz/verify/account.php">Fill suspicious example</button>
+          <button class="btn ghost" data-fill="url" data-text="https://www.wikipedia.org/">Fill ordinary example</button>
+        </div>
+      </div>
+      <div id="urlResult" aria-live="polite"></div>
+    </section>
+
+    <!-- MESSAGE SCANNER -->
+    <section class="view hidden" id="view-message">
+      <div class="panel">
+        <h2>Analyse a message or email</h2>
+        <p class="muted">Paste the text of an SMS or email. Only structured findings are ever shared with an AI provider, never your message.</p>
+        <label class="field-label" for="msgInput">Message text</label>
+        <textarea id="msgInput" rows="7" maxlength="5000" spellcheck="false" placeholder="Paste a suspicious message here"></textarea>
+        <div class="counter"><span id="msgCount">0</span> / 5000</div>
+        <div class="actions">
+          <button class="btn primary" id="msgBtn">Analyse message</button>
+          <button class="btn ghost" data-fill="message" data-text="Dear customer, your bank account has been suspended due to unusual activity. Verify your identity immediately at http://secure-bank-login.xyz/verify or your account will be locked within 24 hours.">Fill suspicious example</button>
+          <button class="btn ghost" data-fill="message" data-text="Hi Sam, are we still on for lunch tomorrow at 1 PM? Let me know if you want to change the place.">Fill ordinary example</button>
+        </div>
+      </div>
+      <div id="msgResult" aria-live="polite"></div>
+    </section>
+
+    <!-- RISK ANALYSIS -->
+    <section class="view hidden" id="view-risk">
+      <div id="riskEmpty" class="panel empty-state">Run a URL or message scan to see its risk analysis here.</div>
+      <div id="riskBody" class="hidden">
+        <div id="riskWarn" class="banner hidden" role="note"></div>
+        <div class="two-col wide-left">
+          <div class="panel center">
+            <div id="riskGauge"></div>
+            <div id="riskBadges" class="badges"></div>
+            <p class="tiny" id="riskId"></p>
+          </div>
+          <div class="panel">
+            <h2>Score breakdown</h2>
+            <div id="breakdown"></div>
+            <p class="tiny">Weights are fixed, documented heuristics. The score is a prioritisation aid, not a calibrated probability.</p>
+            <div class="kv" id="modelKv"></div>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="panel">
+            <h2>Recommended actions</h2>
+            <ul class="plain" id="recoList"></ul>
+          </div>
+          <div class="panel">
+            <h2>Security summary</h2>
+            <p class="muted">Generate a plain-language explanation. If no AI provider is configured or reachable, a local summary is shown instead. The score never changes.</p>
+            <button class="btn primary" id="aiBtn">Generate summary</button>
+            <div id="aiOut" class="ai-out hidden" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EVIDENCE -->
+    <section class="view hidden" id="view-evidence">
+      <div id="evEmpty" class="panel empty-state">Run a scan to see the detection evidence behind its score.</div>
+      <div id="evBody" class="hidden">
+        <div class="panel"><h2>Detection evidence</h2><ul class="evidence" id="evList"></ul></div>
+        <div class="panel" id="evLinksPanel"><h2>Links found in the message</h2>
+          <div class="table-wrap"><table class="tbl" id="evLinks"><thead><tr><th>Registered domain</th><th>Score</th><th>Level</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section class="view hidden" id="view-history">
+      <div class="panel">
+        <div class="panel-head"><h2>Analysis history</h2><button class="btn danger" id="clearBtn">Clear history</button></div>
+        <p class="muted">History stores scores, categories, evidence and the registered domains of scanned links. Message text and full URLs (paths, query strings) are not saved.</p>
+        <div class="table-wrap"><table class="tbl" id="histTbl">
+          <thead><tr><th>ID</th><th>Time (UTC)</th><th>Type</th><th>Target</th><th>Score</th><th>Level</th><th>Category</th><th></th></tr></thead><tbody></tbody>
+        </table></div>
+        <p class="empty hidden" id="histEmpty">History is empty.</p>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view hidden" id="view-settings">
+      <div class="two-col">
+        <div class="panel"><h2>Detection models</h2><div class="kv" id="setModels"></div>
+          <p class="tiny" id="setEval"></p></div>
+        <div class="panel"><h2>AI summaries</h2><div class="kv" id="setAi"></div>
+          <p class="tiny">Configured with environment variables (see README). API keys live only on the server and are never sent to the browser.</p></div>
+      </div>
+      <div class="panel"><h2>Privacy and limits</h2>
+        <ul class="plain">
+          <li>Detection, features and scoring run locally and work without internet access.</li>
+          <li>AI providers receive only structured findings (labels, numbers, categories), never your text, URLs or domains.</li>
+          <li>PhishGuard AI is a detection aid, not a guarantee. Verify suspicious messages through a trusted channel.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

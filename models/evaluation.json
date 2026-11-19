@@ -1,0 +1,121 @@
+{
+  "seed": 42,
+  "synthetic_data": true,
+  "versions": {
+    "python": "3.14.8",
+    "scikit-learn": "1.9.1",
+    "numpy": "2.5.5",
+    "pandas": "3.1.1"
+  },
+  "message_model": {
+    "n_test": 139,
+    "accuracy": 0.9424,
+    "precision": 0.9157,
+    "recall": 0.987,
+    "f1": 0.95,
+    "roc_auc": 0.9902,
+    "false_positive_rate": 0.1129,
+    "confusion_matrix": {
+      "tn": 55,
+      "fp": 7,
+      "fn": 1,
+      "tp": 76
+    },
+    "grouped_5fold_cv": {
+      "mean_f1": 0.9649,
+      "std_f1": 0.0556
+    }
+  },
+  "url_model": {
+    "n_test": 341,
+    "accuracy": 0.9912,
+    "precision": 1.0,
+    "recall": 0.9845,
+    "f1": 0.9922,
+    "roc_auc": 1.0,
+    "false_positive_rate": 0.0,
+    "confusion_matrix": {
+      "tn": 148,
+      "fp": 0,
+      "fn": 3,
+      "tp": 190
+    },
+    "grouped_5fold_cv": {
+      "mean_f1": 0.9985,
+      "std_f1": 0.0018
+    },
+    "top_features": [
+      {
+        "feature": "suspicious_tld",
+        "importance": 0.1846
+      },
+      {
+        "feature": "is_https",
+        "importance": 0.1448
+      },
+      {
+        "feature": "brand_misuse",
+        "importance": 0.1006
+      },
+      {
+        "feature": "host_dots",
+        "importance": 0.0502
+      },
+      {
+        "feature": "risky_extension",
+        "importance": 0.0494
+      },
+      {
+        "feature": "host_hyphens",
+        "importance": 0.0481
+      },
+      {
+        "feature": "n_subdomains",
+        "importance": 0.0472
+      },
+      {
+        "feature": "brand_in_domain_inexact",
+        "importance": 0.0387
+      }
+    ],
+    "robustness_recall": {
+      "original": 0.9845,
+      "query_added": 0.9482,
+      "uppercase_scheme_host": 0.9845,
+      "trailing_slash": 0.9793,
+      "scheme_swapped": 0.9585
+    }
+  },
+  "message_end_to_end": {
+    "n_test": 139,
+    "accuracy": 0.9928,
+    "precision": 1.0,
+    "recall": 0.987,
+    "f1": 0.9935,
+    "roc_auc": 1.0,
+    "false_positive_rate": 0.0,
+    "confusion_matrix": {
+      "tn": 62,
+      "fp": 0,
+      "fn": 1,
+      "tp": 76
+    },
+    "decision_rule": "risk_score >= 50 flagged as phishing"
+  },
+  "url_end_to_end": {
+    "n_test": 341,
+    "accuracy": 0.9765,
+    "precision": 1.0,
+    "recall": 0.9585,
+    "f1": 0.9788,
+    "roc_auc": 0.9998,
+    "false_positive_rate": 0.0,
+    "confusion_matrix": {
+      "tn": 148,
+      "fp": 0,
+      "fn": 8,
+      "tp": 185
+    },
+    "decision_rule": "risk_score >= 50 flagged as phishing"
+  }
+}
